@@ -14,12 +14,16 @@ class MethodChannelVideoToolbox extends VideoToolboxPlatform {
     required String inputPath,
     required String outputPath,
     required int destBitRate,
+    required int destWidth,
+    required int destHeight,
   }) async {
     try {
       final options = {
         'inputPath': inputPath,
         'outputPath': outputPath,
         'destBitRate': destBitRate,
+        'destWidth': destWidth,
+        'destHeight': destHeight,
       };
       await methodChannel.invokeMethod('compressVideo', options);
     } on PlatformException catch (e) {

@@ -16,14 +16,16 @@ public class VideoToolboxPlugin: NSObject, FlutterPlugin {
             guard let args = call.arguments as? [String: Any],
                   let inputPath = args["inputPath"] as? String,
                   let outputPath = args["outputPath"] as? String,
-                  let destBitRate = args["destBitRate"] as? Int else {
+                  let destBitRate = args["destBitRate"] as? Int,
+                  let destWidth = args["destWidth"] as? Int,
+                  let destHeight = args["destHeight"] as? Int else {
                 result(FlutterError(code: "INVALID_ARGUMENTS", message: "Invalid arguments for compressVideo", details: nil))
                 return
             }
             
             let options = Options(
-                destWidth: 1920,  // Example value
-                destHeight: 1080, // Example value
+                destWidth: destWidth,
+                destHeight: destHeight,
                 pixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                 codec: kCMVideoCodecType_H264,
                 destBitRate: destBitRate,

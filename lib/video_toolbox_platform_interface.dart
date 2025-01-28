@@ -3,9 +3,6 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'video_toolbox_method_channel.dart';
 
 abstract class VideoToolboxPlatform extends PlatformInterface {
-  /// Constructs a VideoToolboxPlatform.
-  VideoToolboxPlatform() : super(token: _token);
-
   static final Object _token = Object();
 
   static VideoToolboxPlatform _instance = MethodChannelVideoToolbox();
@@ -23,14 +20,18 @@ abstract class VideoToolboxPlatform extends PlatformInterface {
     _instance = instance;
   }
 
+  /// Constructs a VideoToolboxPlatform.
+  VideoToolboxPlatform() : super(token: _token);
+
   Future<void> compressVideo({
     required String inputPath,
     required String outputPath,
     required int destBitRate,
+    required int destWidth,
+    required int destHeight,
   }) {
     throw UnimplementedError('compressVideo() has not been implemented.');
   }
-
 
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
