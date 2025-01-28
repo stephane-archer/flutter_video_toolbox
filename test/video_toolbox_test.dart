@@ -10,6 +10,15 @@ class MockVideoToolboxPlatform
 
   @override
   Future<String?> getPlatformVersion() => Future.value('42');
+
+  @override
+  Future<void> compressVideo({
+    required String inputPath,
+    required String outputPath,
+    required int destBitRate,
+  }) {
+    throw UnimplementedError();
+  }
 }
 
 void main() {

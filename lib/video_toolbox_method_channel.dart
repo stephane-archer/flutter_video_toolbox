@@ -10,8 +10,27 @@ class MethodChannelVideoToolbox extends VideoToolboxPlatform {
   final methodChannel = const MethodChannel('video_toolbox');
 
   @override
+  Future<void> compressVideo({
+    required String inputPath,
+    required String outputPath,
+    required int destBitRate,
+  }) async {
+    try {
+      final options = {
+        'inputPath': inputPath,
+        'outputPath': outputPath,
+        'destBitRate': destBitRate,
+      };
+      await methodChannel.invokeMethod('compressVideo', options);
+    } on PlatformException catch (e) {
+      throw 'Failed to compress video: ${e.message}';
+    }
+  }
+
+  @override
   Future<String?> getPlatformVersion() async {
-    final version = await methodChannel.invokeMethod<String>('getPlatformVersion');
+    final version =
+        await methodChannel.invokeMethod<String>('getPlatformVersion');
     return version;
   }
 }

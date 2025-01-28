@@ -23,6 +23,15 @@ abstract class VideoToolboxPlatform extends PlatformInterface {
     _instance = instance;
   }
 
+  Future<void> compressVideo({
+    required String inputPath,
+    required String outputPath,
+    required int destBitRate,
+  }) {
+    throw UnimplementedError('compressVideo() has not been implemented.');
+  }
+
+
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
