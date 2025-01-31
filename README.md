@@ -1,15 +1,29 @@
 # video_toolbox
 
-A new Flutter plugin project.
+A Dart package that provides video compression using the Video Toolbox API on macOS.
 
-## Getting Started
+# Usage
 
-This project is a starting point for a Flutter
-[plug-in package](https://flutter.dev/to/develop-plugins),
-a specialized package that includes platform-specific implementation code for
-Android and/or iOS.
+## Import the package
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+``` Dart
+import 'package:video_toolbox/video_toolbox.dart';
+```
 
+## Compress a video
+
+``` Dart
+void main() async {
+  final videoToolbox = VideoToolbox();
+
+  await videoToolbox.compressVideo(
+    inputPath: "/path/to/input/video.mp4",
+    outputPath: "/path/to/output/video.mp4",
+    destBitRate: 1000000, // in bits per second
+    destWidth: 1280,
+    destHeight: 720,
+  );
+
+  print("Video compression completed.");
+}
+```
