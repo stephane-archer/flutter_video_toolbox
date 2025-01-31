@@ -1,6 +1,6 @@
 # video_toolbox
 
-A Dart package that provides video compression using the Video Toolbox API on macOS.
+A Dart package that provides video compression using the Video Toolbox API.
 
 # Usage
 

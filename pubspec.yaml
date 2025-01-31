@@ -1,7 +1,7 @@
 name: video_toolbox
-description: "A new Flutter plugin project."
+description: "video compression using the Video Toolbox API"
 version: 0.0.1
-homepage:
+repository: "https://github.com/stephane-archer/flutter_video_toolbox"
 
 environment:
   sdk: ^3.6.1
