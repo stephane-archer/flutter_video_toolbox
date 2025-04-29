@@ -16,6 +16,7 @@ class MethodChannelVideoToolbox extends VideoToolboxPlatform {
     required int destBitRate,
     required int destWidth,
     required int destHeight,
+    required VideoCodec codec,
   }) async {
     try {
       final options = {
@@ -24,6 +25,7 @@ class MethodChannelVideoToolbox extends VideoToolboxPlatform {
         'destBitRate': destBitRate,
         'destWidth': destWidth,
         'destHeight': destHeight,
+        'codec': codec.codecName,
       };
       await methodChannel.invokeMethod('compressVideo', options);
     } on PlatformException catch (e) {

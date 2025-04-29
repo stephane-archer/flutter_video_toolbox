@@ -9,7 +9,7 @@ public class VideoToolboxPlugin: NSObject, FlutterPlugin {
         let instance = VideoToolboxPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
     }
-    
+
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "compressVideo":
@@ -18,8 +18,20 @@ public class VideoToolboxPlugin: NSObject, FlutterPlugin {
                   let outputPath = args["outputPath"] as? String,
                   let destBitRate = args["destBitRate"] as? Int,
                   let destWidth = args["destWidth"] as? Int,
-                  let destHeight = args["destHeight"] as? Int else {
+                  let destHeight = args["destHeight"] as? Int,
+                  let codec = args["codec"] as? String else {
                 result(FlutterError(code: "INVALID_ARGUMENTS", message: "Invalid arguments for compressVideo", details: nil))
+                return
+            }
+
+            let codecType: CMVideoCodecType
+            switch codec {
+            case "h264":
+                codecType = kCMVideoCodecType_H264
+            case "hevc":
+                codecType = kCMVideoCodecType_HEVC
+            default:
+                result(FlutterError(code: "INVALID_CODEC", message: "Unsupported codec: \(codec)", details: nil))
                 return
             }
 
@@ -27,13 +39,13 @@ public class VideoToolboxPlugin: NSObject, FlutterPlugin {
                 destWidth: destWidth,
                 destHeight: destHeight,
                 pixelFormat: kCVPixelFormatType_32BGRA,
-                codec: kCMVideoCodecType_H264,
+                codec: codecType,
                 destBitRate: destBitRate,
                 maxKeyFrameInterval: 30,
                 maxKeyFrameIntervalDuration: 2.0,
                 savePower: false
             )
-            
+
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     try compressVideo(inputPath: inputPath, outputPath: outputPath, options: options)
@@ -84,15 +96,18 @@ func compressVideo(inputPath: String, outputPath: String, options: Options) thro
     let videoReaderOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
     reader.add(videoReaderOutput)
 
-    // Video writer
+    // Profile levels as strings (to avoid dependency on unavailable constants)
+    let hevcProfileLevel = "HEVC_Main_AutoLevel"
+    let h264ProfileLevel = AVVideoProfileLevelH264HighAutoLevel
+
     let videoWriterSettings: [String: Any] = [
-        AVVideoCodecKey: AVVideoCodecType.h264,
+        AVVideoCodecKey: options.codec == kCMVideoCodecType_H264 ? AVVideoCodecType.h264 : AVVideoCodecType.hevc,
         AVVideoWidthKey: options.destWidth,
         AVVideoHeightKey: options.destHeight,
         AVVideoCompressionPropertiesKey: [
             AVVideoAverageBitRateKey: options.destBitRate,
             AVVideoMaxKeyFrameIntervalKey: options.maxKeyFrameInterval,
-            AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+            AVVideoProfileLevelKey: options.codec == kCMVideoCodecType_H264 ? h264ProfileLevel : hevcProfileLevel
         ]
     ]
     let videoWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoWriterSettings)

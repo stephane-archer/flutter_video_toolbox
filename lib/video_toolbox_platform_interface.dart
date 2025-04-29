@@ -2,6 +2,20 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'video_toolbox_method_channel.dart';
 
+enum VideoCodec {
+  h264,
+  hevc;
+
+  String get codecName {
+    switch (this) {
+      case VideoCodec.h264:
+        return "h264";
+      case VideoCodec.hevc:
+        return "hevc";
+    }
+  }
+}
+
 abstract class VideoToolboxPlatform extends PlatformInterface {
   static final Object _token = Object();
 
@@ -29,6 +43,7 @@ abstract class VideoToolboxPlatform extends PlatformInterface {
     required int destBitRate,
     required int destWidth,
     required int destHeight,
+    required VideoCodec codec,
   }) {
     throw UnimplementedError('compressVideo() has not been implemented.');
   }

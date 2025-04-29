@@ -30,6 +30,7 @@ class MockVideoToolboxPlatform
     required int destBitRate,
     required int destWidth,
     required int destHeight,
+    required VideoCodec codec,
   }) {
     throw UnimplementedError();
   }
