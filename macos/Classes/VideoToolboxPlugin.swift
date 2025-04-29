@@ -22,11 +22,11 @@ public class VideoToolboxPlugin: NSObject, FlutterPlugin {
                 result(FlutterError(code: "INVALID_ARGUMENTS", message: "Invalid arguments for compressVideo", details: nil))
                 return
             }
-            
+
             let options = Options(
                 destWidth: destWidth,
                 destHeight: destHeight,
-                pixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                pixelFormat: kCVPixelFormatType_32BGRA,
                 codec: kCMVideoCodecType_H264,
                 destBitRate: destBitRate,
                 maxKeyFrameInterval: 30,
@@ -34,12 +34,17 @@ public class VideoToolboxPlugin: NSObject, FlutterPlugin {
                 savePower: false
             )
             
-            do {
-                try compressVideo(inputPath: inputPath, outputPath: outputPath, options: options)
-                result(nil) // Success
-            } catch {
-                result(FlutterError(code: "COMPRESSION_FAILED", message: error.localizedDescription, details: nil))
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try compressVideo(inputPath: inputPath, outputPath: outputPath, options: options)
+                    DispatchQueue.main.async { result(nil) }
+                } catch {
+                    DispatchQueue.main.async {
+                        result(FlutterError(code: "COMPRESSION_FAILED", message: error.localizedDescription, details: nil))
+                    }
+                }
             }
+
         case "getPlatformVersion":
             result("macOS " + ProcessInfo.processInfo.operatingSystemVersionString)
         default:
@@ -62,151 +67,128 @@ struct Options {
 func compressVideo(inputPath: String, outputPath: String, options: Options) throws {
     let inputURL = URL(fileURLWithPath: inputPath)
     let outputURL = URL(fileURLWithPath: outputPath)
-    
-    // Create AVAsset for the input file
+    try? FileManager.default.removeItem(at: outputURL)
+
     let asset = AVAsset(url: inputURL)
     guard let videoTrack = asset.tracks(withMediaType: .video).first else {
-        throw NSError(domain: "VideoToolboxPlugin", code: -1, userInfo: [NSLocalizedDescriptionKey: "No video track found in file: \(inputPath)"])
+        throw NSError(domain: "VideoToolboxPlugin", code: -1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
     }
-    
-    // Create AVAssetReader
+
     let reader = try AVAssetReader(asset: asset)
-    let readerOutputSettings: [String: Any] = [
+    let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+
+    // Video reader
+    let videoReaderSettings: [String: Any] = [
         kCVPixelBufferPixelFormatTypeKey as String: options.pixelFormat
     ]
-    let readerOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: readerOutputSettings)
-    reader.add(readerOutput)
-    
-    // Create AVAssetWriter
-    let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-    let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
+    let videoReaderOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
+    reader.add(videoReaderOutput)
+
+    // Video writer
+    let videoWriterSettings: [String: Any] = [
         AVVideoCodecKey: AVVideoCodecType.h264,
         AVVideoWidthKey: options.destWidth,
         AVVideoHeightKey: options.destHeight,
         AVVideoCompressionPropertiesKey: [
             AVVideoAverageBitRateKey: options.destBitRate,
-            AVVideoMaxKeyFrameIntervalKey: options.maxKeyFrameInterval
+            AVVideoMaxKeyFrameIntervalKey: options.maxKeyFrameInterval,
+            AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
         ]
-    ])
-    writer.add(writerInput)
-    
-    // Start reading and writing
-    reader.startReading()
-    writer.startWriting()
+    ]
+    let videoWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoWriterSettings)
+    videoWriterInput.expectsMediaDataInRealTime = false
+    let videoAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+        assetWriterInput: videoWriterInput,
+        sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: options.pixelFormat,
+            kCVPixelBufferWidthKey as String: options.destWidth,
+            kCVPixelBufferHeightKey as String: options.destHeight
+        ]
+    )
+    writer.add(videoWriterInput)
+
+    // Audio reader and writer
+    var audioReaderOutput: AVAssetReaderTrackOutput?
+    var audioWriterInput: AVAssetWriterInput?
+
+    if let audioTrack = asset.tracks(withMediaType: .audio).first {
+        let audioOutputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM
+        ]
+        audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: audioOutputSettings)
+        if let audioOutput = audioReaderOutput {
+            reader.add(audioOutput)
+        }
+
+        let audioWriterSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVNumberOfChannelsKey: 2,
+            AVSampleRateKey: 44100,
+            AVEncoderBitRateKey: 128000
+        ]
+        audioWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioWriterSettings)
+        audioWriterInput?.expectsMediaDataInRealTime = false
+        if let audioInput = audioWriterInput {
+            writer.add(audioInput)
+        }
+    }
+
+    guard reader.startReading() else {
+        throw NSError(domain: "VideoToolboxPlugin", code: -1, userInfo: [NSLocalizedDescriptionKey: "Reader failed: \(reader.error?.localizedDescription ?? "Unknown")"])
+    }
+
+    guard writer.startWriting() else {
+        throw NSError(domain: "VideoToolboxPlugin", code: -1, userInfo: [NSLocalizedDescriptionKey: "Writer failed: \(writer.error?.localizedDescription ?? "Unknown")"])
+    }
+
     writer.startSession(atSourceTime: .zero)
-    
-    // Perform compression
-    let mediaQueue = DispatchQueue(label: "mediaQueue")
-    let group = DispatchGroup()
-    group.enter()
-    
-    writerInput.requestMediaDataWhenReady(on: mediaQueue) {
-        while writerInput.isReadyForMoreMediaData {
-            if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                // Append the sample buffer to the writer
-                writerInput.append(sampleBuffer)
-            } else {
-                writerInput.markAsFinished()
-                group.leave()
+
+    let dispatchGroup = DispatchGroup()
+
+    // VIDEO
+    dispatchGroup.enter()
+    let videoQueue = DispatchQueue(label: "videoQueue")
+    videoWriterInput.requestMediaDataWhenReady(on: videoQueue) {
+        while videoWriterInput.isReadyForMoreMediaData {
+            guard let sampleBuffer = videoReaderOutput.copyNextSampleBuffer() else {
+                videoWriterInput.markAsFinished()
+                dispatchGroup.leave()
                 break
+            }
+            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
+            let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            _ = videoAdaptor.append(pixelBuffer, withPresentationTime: time)
+        }
+    }
+
+    // AUDIO
+    if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
+        dispatchGroup.enter()
+        let audioQueue = DispatchQueue(label: "audioQueue")
+        audioInput.requestMediaDataWhenReady(on: audioQueue) {
+            while audioInput.isReadyForMoreMediaData {
+                guard let sampleBuffer = audioOutput.copyNextSampleBuffer() else {
+                    audioInput.markAsFinished()
+                    dispatchGroup.leave()
+                    break
+                }
+                _ = audioInput.append(sampleBuffer)
             }
         }
     }
-    
-    group.wait()
-    
-    reader.cancelReading()
-    writer.finishWriting {
-        if writer.status == .failed {
-            NSLog("Failed to write compressed video: \(writer.error?.localizedDescription ?? "Unknown error")")
-        } else {
-            NSLog("Video compression completed successfully.")
-        }
-    }
-}
 
-/// Configures a compression session for offline transcoding.
-/// - Parameters:
-///   - session: A compression session.
-///   - options: The configuration options.
-///   - expectedFrameRate: The expected frame rate of the video source.
-private func configureVTCompressionSession(session: VTCompressionSession, options: Options, expectedFrameRate: Float) {
-    // Different encoder implementations may support different property sets, so
-    // the app needs to determine the implications of a failed property setting
-    // on a case-by-case basis for the encoder. If the property is essential for
-    // the use case and its setting fails, the app terminates. Otherwise, the
-    // encoder ignores the failed setting and uses a default value to proceed
-    // with encoding.
-    
-    
-    var err: OSStatus = noErr
-    
-    // Specify the profile and level for the encoded bitstream.
-    if options.codec == kCMVideoCodecType_H264 {
-        err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Main_AutoLevel)
-    } else if options.codec == kCMVideoCodecType_HEVC {
-        err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_HEVC_Main_AutoLevel)
+    dispatchGroup.wait()
+
+    let semaphore = DispatchSemaphore(value: 0)
+    writer.finishWriting {
+        if writer.status != .completed {
+            print("Writer failed: \(writer.error?.localizedDescription ?? "Unknown")")
+        }
+        semaphore.signal()
     }
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_ProfileLevel) failed (\(err))")
-    }
-    
-    
-    // Indicate that the compression session isn't in real time.
-    err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanFalse)
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_RealTime) failed (\(err))")
-    }
-    
-    
-    // Specify the long-term desired average bit rate in bits per second. It's a
-    // soft limit, so the encoder may overshoot or undershoot, and the average
-    // bit rate of the output video may be over or under the target.
-    err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: options.destBitRate as CFNumber)
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_AverageBitRate) failed (\(err))")
-    }
-    
-    
-    // Enable temporal compression.
-    err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowTemporalCompression, value: kCFBooleanTrue)
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_AllowTemporalCompression) failed (\(err))")
-    }
-    
-    
-    // Enable frame reordering.
-    err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanTrue)
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_AllowFrameReordering) failed (\(err))")
-    }
-    
-    
-    // Specify the maximum interval between key frames, also known as the key
-    // frame rate. Set this in conjunction with
-    // `kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration` to enforce both
-    // limits, which requires a keyframe every X frames or every Y seconds,
-    // whichever comes first.
-    err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: options.maxKeyFrameInterval as CFNumber)
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval) failed (\(err))")
-    }
-    
-    
-    // Specify the maximum duration from one key frame to the next in seconds.
-    err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-                               value: options.maxKeyFrameIntervalDuration as CFNumber)
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration) failed (\(err))")
-    }
-    
-    
-    // Hint to the video encoder to maximize power efficiency during encoding. Set
-    // this to `kCFBooleanFalse` for offline transcoding that a user initiates
-    // and waits for the results. Set this to `kCFBooleanTrue` for the offline
-    // transcoding in the background when the user isn't aware.
-    err = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaximizePowerEfficiency, value: options.savePower as CFBoolean)
-    if noErr != err {
-        NSLog("Warning: VTSessionSetProperty(kVTCompressionPropertyKey_MaximizePowerEfficiency) failed (\(err))")
+    semaphore.wait()
+
+    if writer.status != .completed {
+        throw NSError(domain: "VideoToolboxPlugin", code: -1, userInfo: [NSLocalizedDescriptionKey: writer.error?.localizedDescription ?? "Unknown export error"])
     }
 }
