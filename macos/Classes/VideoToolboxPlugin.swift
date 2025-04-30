@@ -96,14 +96,22 @@ func compressVideo(inputPath: String, outputPath: String, options: Options) thro
     let videoReaderOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
     reader.add(videoReaderOutput)
 
+    // Get the preferred transform for rotation
+    let preferredTransform = videoTrack.preferredTransform
+
+    // Adjust width and height for vertical videos
+    let isVertical = abs(preferredTransform.a) < 1e-3 && abs(preferredTransform.d) < 1e-3
+    let adjustedWidth = isVertical ? options.destHeight : options.destWidth
+    let adjustedHeight = isVertical ? options.destWidth : options.destHeight
+
     // Profile levels as strings (to avoid dependency on unavailable constants)
     let hevcProfileLevel = "HEVC_Main_AutoLevel"
     let h264ProfileLevel = AVVideoProfileLevelH264HighAutoLevel
 
     let videoWriterSettings: [String: Any] = [
         AVVideoCodecKey: options.codec == kCMVideoCodecType_H264 ? AVVideoCodecType.h264 : AVVideoCodecType.hevc,
-        AVVideoWidthKey: options.destWidth,
-        AVVideoHeightKey: options.destHeight,
+        AVVideoWidthKey: adjustedWidth,
+        AVVideoHeightKey: adjustedHeight,
         AVVideoCompressionPropertiesKey: [
             AVVideoAverageBitRateKey: options.destBitRate,
             AVVideoMaxKeyFrameIntervalKey: options.maxKeyFrameInterval,
@@ -112,12 +120,13 @@ func compressVideo(inputPath: String, outputPath: String, options: Options) thro
     ]
     let videoWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoWriterSettings)
     videoWriterInput.expectsMediaDataInRealTime = false
+    videoWriterInput.transform = preferredTransform // Apply the preferred transform for rotation
     let videoAdaptor = AVAssetWriterInputPixelBufferAdaptor(
         assetWriterInput: videoWriterInput,
         sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: options.pixelFormat,
-            kCVPixelBufferWidthKey as String: options.destWidth,
-            kCVPixelBufferHeightKey as String: options.destHeight
+            kCVPixelBufferWidthKey as String: adjustedWidth,
+            kCVPixelBufferHeightKey as String: adjustedHeight
         ]
     )
     writer.add(videoWriterInput)
